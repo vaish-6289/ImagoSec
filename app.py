@@ -9,50 +9,39 @@ import streamlit as st
 from dotenv import load_dotenv
 from PIL import Image, UnidentifiedImageError
 
-from forensics import analyze_image
+from forensics import analyze_image, detect_suspicious_magic
 
 load_dotenv()
-st.set_page_config(
-    page_title="ImagoSec | Image Forensics",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="ImagoSec | Image Safety Check", page_icon="🛡️", layout="wide")
 
 st.markdown(
     """
     <style>
-      :root { --ink:#e8eef8; --muted:#9aabc1; --line:#24364d; --accent:#45c4db; }
-      .stApp { background: radial-gradient(ellipse at 50% -20%, #19314d 0, #0b1421 55%); }
-      [data-testid="stHeader"] { background: transparent; }
-      .block-container { max-width: 1280px; padding-top: 2rem; padding-bottom: 3rem; }
-      .hero { padding: 1.6rem 1.8rem; border: 1px solid var(--line); border-radius: 20px;
-              background: linear-gradient(120deg, rgba(20,39,60,.96), rgba(15,27,42,.92));
-              margin-bottom: 1.2rem; }
-      .eyebrow { color: var(--accent); font-size:.78rem; font-weight:700; letter-spacing:.14em;
-                 text-transform:uppercase; margin-bottom:.45rem; }
-      .hero h1 { color:var(--ink); font-size:2.25rem; margin:0; line-height:1.15; }
-      .hero p { color:var(--muted); margin:.7rem 0 0; max-width:850px; font-size:1rem; }
-      .section-title { color:var(--ink); font-size:1.2rem; font-weight:700; margin:.6rem 0 .25rem; }
-      .subtle { color:var(--muted); font-size:.9rem; }
-      .check-card { height:100%; min-height:128px; padding:1rem; border:1px solid var(--line);
-          border-radius:14px; background:rgba(17,29,45,.88); }
-      .check-card h3 { color:var(--ink); font-size:1rem; margin:0 0 .45rem; }
-      .check-card p { color:var(--muted); font-size:.88rem; margin:0; line-height:1.5; }
+      :root { --ink:#e8eef8; --muted:#a9b8cb; --line:#2a3c52; --accent:#4bd1e5; }
+      .stApp { background:radial-gradient(ellipse at 50% -20%,#19314d 0,#0b1421 58%); }
+      [data-testid="stHeader"] { background:transparent; }
+      .block-container { max-width:1280px; padding-top:1.6rem; padding-bottom:3rem; }
+      [data-testid="stSidebar"] { background:#0b1421; border-right:1px solid var(--line); }
+      .hero { padding:1.7rem 1.8rem; border:1px solid var(--line); border-radius:20px;
+        background:linear-gradient(120deg,rgba(20,39,60,.98),rgba(15,27,42,.94)); margin-bottom:1rem; }
+      .eyebrow { color:var(--accent); font-size:.78rem; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
+      .hero h1 { color:var(--ink); font-size:2.25rem; margin:.35rem 0; line-height:1.15; }
+      .hero p { color:var(--muted); max-width:900px; margin:.55rem 0 0; font-size:1.02rem; }
+      .section-title { color:var(--ink); font-size:1.22rem; font-weight:700; margin:1.3rem 0 .45rem; }
+      .muted { color:var(--muted); font-size:.92rem; }
+      .use-card,.check-card { height:100%; min-height:130px; padding:1rem; border:1px solid var(--line);
+        border-radius:14px; background:rgba(17,29,45,.9); }
+      .use-card h3,.check-card h3 { color:var(--ink); font-size:1rem; margin:0 0 .45rem; }
+      .use-card p,.check-card p { color:var(--muted); font-size:.9rem; margin:0; line-height:1.5; }
       .tech { color:var(--accent); font-weight:600; }
-      .note { border-left:3px solid var(--accent); background:rgba(69,196,219,.08);
-              border-radius:8px; padding:.75rem 1rem; color:#c8d8e9; margin:.8rem 0 1.2rem; }
-      div[data-testid="stMetric"] { background:rgba(17,29,45,.9); border:1px solid var(--line);
-          border-radius:15px; padding:1rem 1.1rem; }
+      .safety-note { border-left:4px solid #f3b84b; background:rgba(243,184,75,.09); border-radius:8px;
+        padding:.85rem 1rem; color:#f3e5c4; margin:.8rem 0 1rem; }
+      div[data-testid="stMetric"] { background:rgba(17,29,45,.9); border:1px solid var(--line); border-radius:14px; padding:.85rem; }
       div[data-testid="stMetricLabel"] { color:var(--muted); }
       div[data-testid="stMetricValue"] { color:var(--ink); }
-      div[data-testid="stTabs"] button { color:var(--muted); }
-      div[data-testid="stTabs"] button[aria-selected="true"] { color:var(--accent); }
-      div[data-testid="stFileUploader"] section { background:rgba(17,29,45,.8);
-          border:1px dashed #3b5877; border-radius:15px; }
-      [data-testid="stSidebar"] { background:#0b1421; border-right:1px solid var(--line); }
-      .footer { color:#71839b; font-size:.8rem; text-align:center; padding-top:1.5rem; }
-      @media (max-width: 700px) { .hero h1 {font-size:1.7rem;} .check-card {min-height:0; margin-bottom:.5rem;} }
+      div[data-testid="stFileUploader"] section { background:rgba(17,29,45,.8); border:1px dashed #496887; border-radius:15px; }
+      .footer { color:#8292a8; font-size:.82rem; text-align:center; padding-top:1.6rem; }
+      @media(max-width:700px) { .hero h1 {font-size:1.7rem;} .use-card,.check-card {min-height:0;margin-bottom:.5rem;} }
     </style>
     """,
     unsafe_allow_html=True,
@@ -60,22 +49,16 @@ st.markdown(
 
 
 def azure_credential():
-    """Use developer sign-in locally and managed identity when hosted on Azure."""
     from azure.identity import DefaultAzureCredential
-
     return DefaultAzureCredential()
 
 
 def get_secret(secret_name):
-    """Read an optional Key Vault secret; return None if Key Vault is not configured."""
     vault_url = os.getenv("AZURE_KEY_VAULT_URL")
     if not vault_url:
         return None
-
     from azure.keyvault.secrets import SecretClient
-
-    client = SecretClient(vault_url=vault_url, credential=azure_credential())
-    return client.get_secret(secret_name).value
+    return SecretClient(vault_url=vault_url, credential=azure_credential()).get_secret(secret_name).value
 
 
 def get_sql_connection_string():
@@ -84,274 +67,236 @@ def get_sql_connection_string():
 
 
 def get_blob_service_client():
-    """Create a Blob client only when Blob Storage has been configured."""
-    secret_name = os.getenv(
-        "AZURE_STORAGE_SECRET_NAME", "imagosec-storage-connection-string"
-    )
-    connection_string = get_secret(secret_name)
-    if not connection_string:
-        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-
+    secret_name = os.getenv("AZURE_STORAGE_SECRET_NAME", "imagosec-storage-connection-string")
+    connection_string = get_secret(secret_name) or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
     if not connection_string and not account_url:
         return None
-
     from azure.storage.blob import BlobServiceClient
-
     if connection_string:
         return BlobServiceClient.from_connection_string(connection_string)
     return BlobServiceClient(account_url, credential=azure_credential())
 
 
 def upload_to_blob(file_bytes, filename, file_hash):
-    """Upload to a private, pre-created container when Azure Blob is configured."""
     try:
         client = get_blob_service_client()
         if client is None:
             return None
-
-        container_name = os.getenv("AZURE_STORAGE_CONTAINER", "imagosec-ingestion")
+        container = os.getenv("AZURE_STORAGE_CONTAINER", "imagosec-ingestion")
         blob_name = f"{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
-        blob_client = client.get_blob_client(container=container_name, blob=blob_name)
-        blob_client.upload_blob(
+        client.get_blob_client(container=container, blob=blob_name).upload_blob(
             file_bytes, overwrite=False, metadata={"sha256": file_hash}
         )
         return blob_name
     except Exception as exc:
-        st.sidebar.warning(f"Blob upload failed; scan remains available: {exc}")
+        st.sidebar.warning(f"Private cloud upload failed: {exc}")
         return None
 
 
 def save_scan(filename, result, blob_name):
-    """Save scan history to SQLite by default, or Azure SQL when selected."""
     metadata = result.get("metadata", {})
     ela = result.get("ela", {})
     values = (
-        result["sha256"],
-        int(result["risk_score"]),
-        filename,
-        json.dumps(metadata.get("flags", [])),
-        json.dumps(ela),
-        blob_name,
+        result["sha256"], int(result["risk_score"]), filename,
+        json.dumps(metadata.get("flags", [])), json.dumps(ela), blob_name,
         json.dumps(result.get("issues", [])),
     )
-    database_mode = os.getenv("IMAGOSEC_DATABASE", "sqlite").lower()
-
-    if database_mode == "azure_sql":
+    mode = os.getenv("IMAGOSEC_DATABASE", "sqlite").lower()
+    if mode == "azure_sql":
         connection_string = get_sql_connection_string()
         if not connection_string:
-            raise RuntimeError(
-                "Azure SQL mode is selected, but no SQL connection string was found. "
-                "Configure AZURE_SQL_CONNECTION_STRING or Key Vault."
-            )
+            raise RuntimeError("Azure SQL selected, but no SQL connection string is configured.")
         import pyodbc
-
         with pyodbc.connect(connection_string) as connection:
             connection.cursor().execute(
                 """INSERT INTO dbo.AnalysisLogs
-                   (FileHash, ThreatLevel, FileName, MetadataFlags, ELAReport,
-                    BlobName, FindingsJson)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                values,
+                   (FileHash, ThreatLevel, FileName, MetadataFlags, ELAReport, BlobName, FindingsJson)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""", values
             )
         return "Azure SQL"
-
-    if database_mode != "sqlite":
+    if mode != "sqlite":
         raise ValueError("IMAGOSEC_DATABASE must be 'sqlite' or 'azure_sql'.")
-
-    db_path = os.getenv("SQLITE_PATH", "local_evaluation_ledger.db")
-    with sqlite3.connect(db_path) as connection:
+    with sqlite3.connect(os.getenv("SQLITE_PATH", "local_evaluation_ledger.db")) as connection:
         connection.execute(
             """CREATE TABLE IF NOT EXISTS AnalysisLogs (
-                LogID INTEGER PRIMARY KEY AUTOINCREMENT,
-                FileHash TEXT NOT NULL,
-                ThreatLevel INTEGER NOT NULL,
-                FileName TEXT NOT NULL,
-                MetadataFlags TEXT,
-                ELAReport TEXT,
-                BlobName TEXT,
-                FindingsJson TEXT,
-                ScanDate TEXT DEFAULT CURRENT_TIMESTAMP
-            )"""
+                LogID INTEGER PRIMARY KEY AUTOINCREMENT, FileHash TEXT NOT NULL,
+                ThreatLevel INTEGER NOT NULL, FileName TEXT NOT NULL, MetadataFlags TEXT,
+                ELAReport TEXT, BlobName TEXT, FindingsJson TEXT,
+                ScanDate TEXT DEFAULT CURRENT_TIMESTAMP)"""
         )
         connection.execute(
             """INSERT INTO AnalysisLogs
-               (FileHash, ThreatLevel, FileName, MetadataFlags, ELAReport,
-                BlobName, FindingsJson)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            values,
+               (FileHash, ThreatLevel, FileName, MetadataFlags, ELAReport, BlobName, FindingsJson)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""", values
         )
     return "local SQLite"
 
 
+def risk_band(score):
+    if score >= 70:
+        return "🔴 Several warning signs", "high"
+    if score >= 40:
+        return "🟠 Some warning signs", "medium"
+    return "🟢 Few warning signs found", "low"
+
+
 with st.sidebar:
     st.markdown("## 🛡️ ImagoSec")
-    st.caption("Image forensics workspace")
+    st.caption("A friendly image safety check")
     st.divider()
-    st.markdown("### Runtime configuration")
-    database_mode = os.getenv("IMAGOSEC_DATABASE", "sqlite").lower()
-    if database_mode == "azure_sql":
-        st.success("Database · Azure SQL")
-    else:
-        st.info("Database · SQLite (local)")
-    blob_configured = bool(
-        os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        or os.getenv("AZURE_STORAGE_ACCOUNT_URL")
-        or os.getenv("AZURE_KEY_VAULT_URL")
-    )
-    st.write(f"Blob storage · {'Configured' if blob_configured else 'Not configured'}")
-    st.caption(
-        "SQLite is the no-cloud-cost demo mode. Azure services are used only when configured."
-    )
+    st.markdown("### How it helps")
+    st.markdown("Check a receipt, school notice, marketplace payment screenshot, or image sent in a message for selected warning signs.")
     st.divider()
-    st.markdown("### Scan checks")
-    st.markdown("File validity · Metadata · Pixel differences")
+    mode = os.getenv("IMAGOSEC_DATABASE", "sqlite").lower()
+    st.markdown("### Storage mode")
+    st.write(f"Database: **{'Azure SQL' if mode == 'azure_sql' else 'SQLite (local demo)'}**")
+    st.caption("SQLite lets you demonstrate without active cloud resources. Azure services are used only when configured.")
+    st.divider()
+    st.markdown("### Remember")
+    st.caption("A screenshot is not proof that money was sent. Check your bank or payment app directly.")
 
 st.markdown(
-    """
-    <div class="hero">
-      <div class="eyebrow">Image integrity • metadata • pixel analysis</div>
-      <h1>🛡️ ImagoSec | Secure Image Forensics Gateway</h1>
-      <p>Upload an image for a simple check. The four checks below explain what ImagoSec looks at and what its results can—and cannot—tell you.</p>
-    </div>
-    """,
+    """<div class="hero"><div class="eyebrow">Cybersecurity for everyday images</div>
+    <h1>🛡️ Check the image. Pause before you trust it.</h1>
+    <p>Does it contain suspicious file indicators? Was the image possibly changed? Check a receipt, school notice, online-sale screenshot, or photo from a message. ImagoSec shows clues and what to verify next—it cannot prove an image is genuine or detect every kind of malware.</p></div>""",
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="section-title">What does ImagoSec check?</div>', unsafe_allow_html=True)
-check_columns = st.columns(4, gap="small")
-check_cards = [
-    ("1 · Is it a real image?", "We check that the file can be opened as an image and has an allowed type. <span class='tech'>(file validation)</span>"),
-    ("2 · What details are attached?", "We look for saved information such as image format, size, or editing-software name. <span class='tech'>(metadata / EXIF)</span>"),
-    ("3 · Do pixels look different?", "We compare the image with recompressed copies to find unusual pixel differences. <span class='tech'>(ELA-style analysis)</span>"),
-    ("4 · How should I read the score?", "Treat the score as a clue for review—not a verdict. A score cannot prove that a picture was changed. <span class='tech'>(heuristic)</span>"),
+st.markdown('<div class="section-title">What can this help you check?</div>', unsafe_allow_html=True)
+use_cols = st.columns(3, gap="small")
+use_cases = [
+    ("🧾 Bills & school payments", "A receipt or fee screenshot looks unusual? Review its file, saved details, and pixel-pattern indicators. Always confirm payments in your bank or school portal."),
+    ("🛍️ Buying and selling online", "Someone sends a 'payment complete' screenshot? Check for image warning signs, then confirm the transaction in your own payment account before handing over goods."),
+    ("💬 Photos from messages", "A picture or screenshot feels suspicious? ImagoSec can surface selected file and editing clues to help you decide what to verify next."),
 ]
-for column, (heading, description) in zip(check_columns, check_cards):
+for column, (title, text) in zip(use_cols, use_cases):
     with column:
-        st.markdown(
-            f"<div class='check-card'><h3>{heading}</h3><p>{description}</p></div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div class='use-card'><h3>{title}</h3><p>{text}</p></div>", unsafe_allow_html=True)
 
-st.markdown('<div class="section-title">Start an image scan</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="subtle">Choose a JPG, PNG, or BMP image. Invalid or corrupted files are rejected.</div>',
-    unsafe_allow_html=True,
-)
-uploaded = st.file_uploader(
-    "Upload an image", type=["jpg", "jpeg", "png", "bmp"], label_visibility="collapsed"
-)
+st.markdown('<div class="section-title">What does ImagoSec look for?</div>', unsafe_allow_html=True)
+check_cols = st.columns(4, gap="small")
+checks = [
+    ("1 · Is it a readable image?", "Checks that the file opens as an image and has an allowed type. <span class='tech'>(file validation)</span>"),
+    ("2 · What details are saved?", "Looks for format, size, and available editing-software details. <span class='tech'>(metadata / EXIF)</span>"),
+    ("3 · Do pixel patterns differ?", "Compares recompressed copies for unusual differences. <span class='tech'>(ELA-style analysis)</span>"),
+    ("4 · What does the score mean?", "A score is a clue to review—not proof of editing or safety. <span class='tech'>(heuristic estimate)</span>"),
+]
+for column, (title, text) in zip(check_cols, checks):
+    with column:
+        st.markdown(f"<div class='check-card'><h3>{title}</h3><p>{text}</p></div>", unsafe_allow_html=True)
+
+st.markdown('<div class="section-title">Check an image</div>', unsafe_allow_html=True)
+st.markdown('<div class="muted">Choose a JPG, PNG, or BMP file (maximum 15 MB).</div>', unsafe_allow_html=True)
+uploaded = st.file_uploader("Choose an image", type=["jpg", "jpeg", "png", "bmp"], max_upload_size=15, label_visibility="collapsed")
 
 if uploaded is None:
-    st.info("Upload an image to see its scan summary, metadata, and analysis details here.")
+    st.info("👆 Choose an image to get a simple risk summary and practical next steps.")
 else:
     file_bytes = uploaded.getvalue()
+    # Analyze first, so suspicious signature markers in an invalid disguised upload
+    # can be reported without ever trying to display or execute the file.
+    result = analyze_image(uploaded.name, file_bytes)
+    signature_matches = detect_suspicious_magic(file_bytes)
     try:
         with Image.open(io.BytesIO(file_bytes)) as image:
             image.verify()
+        image_readable = True
     except (UnidentifiedImageError, OSError, ValueError):
-        st.error("Invalid or corrupted image. Please choose a readable JPG, PNG, or BMP file.")
+        image_readable = False
+
+    if not image_readable:
+        st.error("⛔ This file cannot be opened as an image. It may be damaged, mislabeled, or contain an unsupported format. Do not open it with another program if you do not trust its source.")
+        if signature_matches:
+            st.error("🚨 A known executable/archive signature marker was found in the initial file bytes: " + ", ".join(repr(x) for x in signature_matches))
+            st.metric("Known-signature indicator score", "100%")
+            st.caption("This is a match to a small signature list—not a malware probability or a complete antivirus scan.")
+        else:
+            st.metric("Known-signature indicator score", "0%")
+            st.caption("No marker from this prototype's small signature list was found. That does not prove the file is harmless.")
+        st.markdown("### Result")
+        st.write("**Was the image changed?** Cannot assess: the file could not be decoded as an image.")
+        st.write("**Does it contain malicious data?** No malware verdict is available. The prototype only checks a limited set of file-signature markers.")
         st.stop()
 
-    with st.spinner("Analyzing image…"):
-        result = analyze_image(uploaded.name, file_bytes)
+    score = int(result.get("risk_score", 0))
+    label, band = risk_band(score)
+    metadata = result.get("metadata", {})
+    ela = result.get("ela", {})
+    metadata_flags = metadata.get("flags", []) if isinstance(metadata, dict) else []
+    software_found = metadata.get("software") if isinstance(metadata, dict) else None
+    pixel_score = int(ela.get("risk_score", 0)) if isinstance(ela, dict) else 0
+    has_editing_traces = bool(software_found or metadata_flags)
+    alteration_indicator = max(pixel_score, 35 if has_editing_traces else 0)
 
-    risk = int(result["risk_score"])
-    if risk >= 70:
-        status, status_type = "Elevated indicators", "error"
-    elif risk >= 40:
-        status, status_type = "Review recommended", "warning"
-    else:
-        status, status_type = "No major indicators", "success"
-
-    col_preview, col_summary = st.columns([1, 1.35], gap="large")
-    with col_preview:
+    preview, summary = st.columns([1, 1.4], gap="large")
+    with preview:
         st.markdown('<div class="section-title">Image preview</div>', unsafe_allow_html=True)
         with Image.open(io.BytesIO(file_bytes)) as image:
-            st.image(image.copy(), caption=uploaded.name, width=420)
-        st.caption(f"{len(file_bytes):,} bytes · SHA-256 `{result['sha256'][:16]}…`")
+            st.image(image.copy(), caption=uploaded.name, width=380)
+        st.caption(f"{len(file_bytes):,} bytes · File fingerprint (SHA-256): `{result['sha256'][:16]}…`")
+    with summary:
+        st.markdown('<div class="section-title">Quick safety summary</div>', unsafe_allow_html=True)
+        st.metric("Overall warning indicator", f"{score}%")
+        st.write(label)
+        st.progress(max(0, min(score, 100)) / 100)
+        st.markdown('<div class="safety-note"><strong>Important:</strong> Percentages here are prototype indicator scores, not the probability that an image is altered or malware is present.</div>', unsafe_allow_html=True)
 
-    with col_summary:
-        st.markdown('<div class="section-title">Scan summary</div>', unsafe_allow_html=True)
-        score_col, status_col = st.columns(2)
-        score_col.metric("Prototype risk score", f"{risk}/100")
-        status_col.metric("Assessment", status)
-        st.progress(max(0, min(risk, 100)) / 100)
-        if status_type == "error":
-            st.error("Higher-risk indicators were found. Review the details below.")
-        elif status_type == "warning":
-            st.warning("Some indicators deserve review; the score is not a forensic verdict.")
-        else:
-            st.success("No major indicators were detected by this prototype.")
-        st.markdown(
-            '<div class="note">ELA is a heuristic (an estimate based on image patterns), not proof that an image was manipulated.</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown("### Results in plain language")
+    st.write(f"**Was your image changed or altered?** Alteration indicator score: **{alteration_indicator}%** (based on ELA-style pixel differences and editing-related metadata clues).")
+    if has_editing_traces:
+        trace_items = []
+        if software_found:
+            trace_items.append(f"editing software recorded: {software_found}")
+        if metadata_flags:
+            trace_items.append("metadata fields present: " + ", ".join(str(x) for x in metadata_flags))
+        st.write("**What clues were found?** " + "; ".join(trace_items) + f"; ELA-style pixel indicator: {pixel_score}%.")
+    elif pixel_score > 30:
+        st.write(f"**What clues were found?** Unusual pixel differences were measured (ELA-style indicator: {pixel_score}%). The prototype cannot identify exact altered objects or state what percentage of the image was changed.")
+    else:
+        st.write(f"**What clues were found?** No specific editing metadata traces or strong ELA-style pixel anomalies were found (pixel indicator: {pixel_score}%). This does not prove the image was unchanged.")
 
-    overview_tab, metadata_tab, technical_tab = st.tabs(
-        ["🔎 Findings", "🏷️ Metadata", "📊 Pixel analysis"]
+    if signature_matches:
+        st.error("**Does this file contain malicious data?** A known suspicious signature marker was detected. This requires caution; it is not a full malware scan.")
+        st.metric("Known-signature indicator score", "100%")
+        st.write("**Marker(s) found:** " + ", ".join(repr(x) for x in signature_matches))
+    else:
+        st.success("**Does this file contain malicious data?** No marker from this prototype's limited signature list was found.")
+        st.metric("Known-signature indicator score", "0%")
+        st.caption("This is not a malware-free verdict; this prototype does not scan all embedded content or execute antivirus checks.")
+
+    if band == "high":
+        st.error("🛑 Pause and verify independently. Don't send money, share codes, or hand over goods based only on this image.")
+    elif band == "medium":
+        st.warning("👀 Take a closer look. Contact the sender using a trusted method, not contact details shown only in the image.")
+    else:
+        st.info("✅ No major warning signs were detected by these checks. Verify important claims in the official app or with the organization.")
+
+    st.markdown("### Engineer summary")
+    st.code(
+        f"Metadata traces left by editing tools: {('software=' + str(software_found) if software_found else 'none recorded')}; flags={metadata_flags or 'none'} | Pixel anomalies using an ELA-style risk score: {pixel_score}/100 | Known suspicious signature markers: {signature_matches or 'none detected'}",
+        language="text",
     )
-    with overview_tab:
-        findings = result.get("issues", [])
-        if findings:
-            for finding in findings:
-                st.warning(finding)
-        else:
-            st.success("No major findings detected by the current checks.")
-        st.code(f"SHA-256: {result['sha256']}", language="text")
+    with st.expander("View complete metadata and technical scan details"):
+        st.json({"metadata": metadata, "pixel_analysis": ela, "issues": result.get("issues", []), "sha256": result["sha256"]})
 
-    with metadata_tab:
-        metadata = result.get("metadata", {})
-        if "error" in metadata:
-            st.info("Metadata could not be read from this image.")
-        else:
-            meta_a, meta_b, meta_c = st.columns(3)
-            meta_a.metric("Format", str(metadata.get("format") or "Unknown"))
-            size = metadata.get("size")
-            meta_b.metric("Dimensions", f"{size[0]} × {size[1]}" if size else "Unknown")
-            meta_c.metric("Color mode", str(metadata.get("mode") or "Unknown"))
-            st.write("**Editing software:**", metadata.get("software") or "Not recorded")
-            st.write("**Metadata flags:**", ", ".join(metadata.get("flags", [])) or "None found")
-            with st.expander("View complete metadata result"):
-                st.json(metadata)
+    report = {"filename": uploaded.name, "sha256": result["sha256"], "overall_indicator_score": score,
+              "alteration_indicator_score_not_probability": alteration_indicator,
+              "ela_indicator_score_not_probability": pixel_score,
+              "known_signature_matches": [repr(x) for x in signature_matches],
+              "issues": result.get("issues", []), "metadata": metadata, "ela": ela}
+    st.download_button("⬇️ Download scan report", data=json.dumps(report, indent=2, default=str),
+                       file_name=f"imagosec-report-{result['sha256'][:12]}.json", mime="application/json")
 
-    with technical_tab:
-        ela = result.get("ela", {})
-        st.metric("ELA-style score", f"{ela.get('risk_score', 0)}/100")
-        st.write(ela.get("message", "No ELA summary available."))
-        st.caption("This implementation compares recompressed pixels; it does not yet generate a visual heatmap.")
-        with st.expander("View quality comparison values"):
-            st.json({"quality_scores": ela.get("quality_scores", [])})
-
-    report = {
-        "filename": uploaded.name,
-        "sha256": result["sha256"],
-        "risk_score": risk,
-        "issues": result.get("issues", []),
-        "metadata": result.get("metadata", {}),
-        "ela": result.get("ela", {}),
-    }
-    st.download_button(
-        "⬇️ Download scan report (JSON)",
-        data=json.dumps(report, indent=2, default=str),
-        file_name=f"imagosec-report-{result['sha256'][:12]}.json",
-        mime="application/json",
-    )
-
-    # Streamlit reruns the script on UI interactions; persist each hash only once
-    # per browser session to avoid duplicate database rows and duplicate blob uploads.
     if "saved_scan_hashes" not in st.session_state:
         st.session_state.saved_scan_hashes = set()
     if result["sha256"] not in st.session_state.saved_scan_hashes:
         blob_name = upload_to_blob(file_bytes, uploaded.name, result["sha256"])
         try:
-            database_name = save_scan(uploaded.name, result, blob_name)
-            st.sidebar.success(f"Scan history saved to {database_name}.")
+            db_name = save_scan(uploaded.name, result, blob_name)
+            st.sidebar.success(f"Scan record saved to {db_name}.")
         except Exception as exc:
-            st.sidebar.error(f"Could not save scan history: {exc}")
+            st.sidebar.error(f"Scan was analyzed, but its history could not be saved: {exc}")
         st.session_state.saved_scan_hashes.add(result["sha256"])
 
-st.markdown(
-    '<div class="footer">ImagoSec prototype · SQLite is for local demos; Azure services are optional and used only when configured.</div>',
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="footer">ImagoSec surfaces limited warning indicators to help people pause and verify. Scores are not probabilities, a malware verdict, or proof of image authenticity.</div>', unsafe_allow_html=True)
