@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from PIL import Image, UnidentifiedImageError
 
 from forensics import analyze_image, detect_suspicious_magic
-from dotenv import load_dotenv
 
 load_dotenv()
 st.set_page_config(page_title="ImagoSec | Image Safety Check", page_icon="🛡️", layout="wide")
@@ -133,12 +132,12 @@ def save_scan(filename, result, blob_name):
     return "local SQLite"
 
 
-def score_band(score):
-    if score >= 70:
-        return "🔴 More indicators to review"
-    if score >= 40:
-        return "🟠 Some indicators to review"
-    return "🟢 Few indicators detected"
+def pixel_difference_label(score):
+    if score > 60:
+        return "High pixel differences"
+    if score > 25:
+        return "Some pixel differences"
+    return "Low pixel differences"
 
 
 with st.sidebar:
@@ -154,7 +153,7 @@ with st.sidebar:
 st.markdown(
     """<div class="hero"><div class="eyebrow">Cybersecurity for everyday images</div>
     <h1>🛡️ Check the image. Pause before you trust it.</h1>
-    <p>Check a receipt, school notice, online-sale screenshot, or image from a message for selected warning signs. ImagoSec can highlight clues to double-check. It is not antivirus and cannot prove an image is genuine.</p></div>""",
+    <p>Check a receipt, school notice, online-sale screenshot, or image from a message for selected warning signs. ImagoSec looks for image-editing clues and suspicious file markers, including some disguised executable or archive signatures.</p></div>""",
     unsafe_allow_html=True,
 )
 
@@ -164,7 +163,7 @@ items = [
     ("📁 Is it a real, readable image?", "Checks that the file opens and has an allowed image type. <b>(file validation)</b>"),
     ("🏷️ What details are saved?", "Looks for editing-software and other image details. <b>(metadata / EXIF)</b>"),
     ("🧩 Do pixel patterns differ?", "Compares recompressed copies for unusual differences. <b>(ELA-style analysis)</b>"),
-    ("⚠️ Is it malicious?", "This prototype is not an antivirus scanner. It cannot confirm whether a file is malware."),
+    ("🚩 Is there a suspicious file marker?", "Checks for selected executable and archive signatures that may be hidden in a file. A match is a warning clue, not proof of malware."),
 ]
 for col, (title, text) in zip(cols, items):
     with col:
@@ -188,17 +187,16 @@ else:
 
     if not image_readable:
         st.error("⛔ This file could not be opened as an image. It may be damaged, mislabeled, or unsupported. Do not open it with another program if you do not trust its source.")
-        st.markdown("### Security result")
-        st.error("**Malicious content: UNKNOWN — NOT SCANNED.** ImagoSec does not include antivirus scanning, so it cannot say this file is malicious or safe.")
+        st.markdown("### File security check")
         if suspicious_markers:
-            st.warning("A limited file-signature rule matched: " + ", ".join(repr(marker) for marker in suspicious_markers) + ". This is a warning clue, not a malware verdict.")
+            st.error("🚩 **Suspicious file marker detected.** The file contains a signature associated with an executable or archive: " + ", ".join(repr(marker) for marker in suspicious_markers) + ". Treat it as suspicious; this is not confirmation of malware.")
         else:
-            st.info("No match in the prototype's small signature-rule list. This does not mean the file is safe; no percentage or clean verdict is available.")
-        st.write("**Was the image changed?** Cannot assess because this file was not readable as an image.")
-        st.write("**What should I do?** Do not open or forward it. If it matters, confirm with the sender through a trusted channel and scan it with reputable security software.")
+            st.warning("**No known marker detected by this check.** This does not rule out hidden or malicious content; only selected signatures are checked.")
+        st.write("**Image alteration:** Cannot assess because this file could not be decoded as an image.")
+        st.write("**Next step:** Don’t open or forward a suspicious file. Verify it with the sender through a trusted channel and use reputable security software if you need a malware verdict.")
         st.stop()
 
-    with st.spinner("Checking image details and pixel patterns…"):
+    with st.spinner("Checking image details, pixel patterns, and suspicious file markers…"):
         result = analyze_image(uploaded.name, file_bytes)
     metadata = result.get("metadata", {})
     ela = result.get("ela", {})
@@ -218,50 +216,53 @@ else:
             st.image(image.copy(), caption=uploaded.name, width=380)
         st.caption(f"SHA-256 file fingerprint: `{result['sha256'][:16]}…`")
     with results_col:
-        st.markdown("### Your results")
+        st.markdown("### Your image check")
         if edit_traces or pixel_flag:
-            st.warning("🟠 **Possible editing clues found.** This does not prove the image was changed.")
+            st.warning("🟠 **Possible image-editing clues found.** Review the details below; clues do not prove what changed.")
         else:
-            st.success("🟢 **No specific alteration clues found by these checks.** This does not prove the image is unchanged.")
-        st.metric("ELA-style pixel indicator score", f"{pixel_score}/100")
-        st.progress(pixel_score / 100)
-        st.markdown('<div class="safety-note"><b>How to read this:</b> The score measures this prototype’s pixel-difference signal. It is not the percentage of the image changed and is not a probability.</div>', unsafe_allow_html=True)
+            st.success("🟢 **No specific image-editing clues found by these checks.** This does not prove the image is unchanged.")
+        st.markdown(f"**Pixel comparison:** {pixel_difference_label(pixel_score)}")
+        st.caption("The ELA value is an internal comparison score—not a percentage of the image changed.")
 
     st.markdown("### Was your image changed or altered?")
     if edit_traces:
-        st.write("**Editing-related metadata traces found:** " + "; ".join(edit_traces) + ". Such traces can be normal and do not prove an edit.")
+        st.write("**Editing-related details found:** " + "; ".join(edit_traces) + ". These details may be normal and do not prove alteration.")
     else:
-        st.write("**Editing-related metadata traces:** None found in the fields checked.")
+        st.write("**Editing-related details:** None found in the metadata fields checked.")
     if pixel_flag:
-        st.write(f"**Pixel differences:** The ELA-style indicator is {pixel_score}/100. It may reflect editing, recompression, or normal image processing; this prototype cannot identify exactly what changed or calculate the percentage of pixels changed.")
+        st.write(f"**Pixel comparison:** {pixel_difference_label(pixel_score)}. The ELA-style comparison found differences that can come from editing, recompression, or normal image processing; it cannot identify exact edits or calculate how much of the image changed.")
     else:
-        st.write(f"**Pixel differences:** No strong anomaly under this prototype's threshold (ELA-style indicator: {pixel_score}/100). This is not proof that the image is unchanged.")
+        st.write(f"**Pixel comparison:** {pixel_difference_label(pixel_score)}. No strong anomaly crossed this prototype's review threshold. This does not prove the image is unchanged.")
 
-    st.markdown("### Does it contain malicious data?")
-    st.error("**UNKNOWN — NOT SCANNED.** The app validates and analyzes selected image properties but does not run antivirus or malware analysis. Do not interpret the alteration score as a malware score.")
+    st.markdown("### Suspicious hidden content check")
     if suspicious_markers:
-        st.warning("A limited signature rule matched: " + ", ".join(repr(marker) for marker in suspicious_markers) + ". This is only a rule match; it does not confirm malware.")
-
-    st.markdown("### What to do next")
-    if edit_traces or pixel_flag:
-        st.warning("Pause before trusting the image. Verify payments, identities, or instructions through an official app or a contact method you already trust.")
+        st.error("🚩 **Suspicious file marker detected:** " + ", ".join(repr(marker) for marker in suspicious_markers) + ". This may indicate executable/archive content or a disguised file. Treat it as suspicious, but a signature match alone does not confirm malware.")
+        st.write("**What to do:** Don’t open or forward it. Verify the source and use a trusted security scanner for a malware verdict.")
     else:
-        st.info("No specific warning signs were detected by these checks. Still verify important claims independently.")
+        st.success("✅ **No known suspicious marker detected** by ImagoSec’s selected signature checks.")
+        st.caption("This is not a clean bill of health: signatures are limited, and no marker match does not rule out hidden or malicious content.")
+
+    if edit_traces or pixel_flag or suspicious_markers:
+        st.warning("**Pause and verify.** Don’t rely on this image alone for payments, identity, or important instructions. Check with an official app or a contact method you already trust.")
+    else:
+        st.info("No specific warning signs were detected by these checks. Verify important claims independently.")
 
     with st.expander("Engineer details"):
         st.code(
-            f"Metadata traces left by editing tools: {edit_traces or 'none found in checked fields'} | Pixel anomalies using an ELA-style risk score: {pixel_score}/100 | Malware scan: not implemented | Signature-rule matches: {suspicious_markers or 'none'}",
+            f"Metadata traces left by editing tools: {edit_traces or 'none found in checked fields'} | Pixel anomalies using an ELA-style risk score: {pixel_score}/100 ({pixel_difference_label(pixel_score)}) | Suspicious executable/archive signature markers: {suspicious_markers or 'none detected'}",
             language="text",
         )
-        st.json({"metadata": metadata, "ela_pixel_indicator": ela, "issues": result.get("issues", []), "sha256": result["sha256"]})
+        st.caption("The ELA score is an internal pixel-difference heuristic, not a percent altered or malware probability. Signature checks cover selected markers only.")
+        st.json({"metadata": metadata, "ela_pixel_comparison": ela, "suspicious_signature_markers": [repr(marker) for marker in suspicious_markers], "issues": result.get("issues", []), "sha256": result["sha256"]})
 
     report = {
         "filename": uploaded.name,
         "sha256": result["sha256"],
-        "malware_status": "unknown_not_scanned",
-        "ela_pixel_indicator_score_not_probability": pixel_score,
-        "editing_metadata_traces": edit_traces,
-        "signature_rule_matches_not_malware_verdict": [repr(marker) for marker in suspicious_markers],
+        "image_editing_clues": edit_traces,
+        "pixel_difference_label": pixel_difference_label(pixel_score),
+        "ela_internal_score_not_percent_altered": pixel_score,
+        "suspicious_signature_markers": [repr(marker) for marker in suspicious_markers],
+        "malware_verdict": "not_provided_signature_indicators_only",
         "metadata": metadata,
         "ela": ela,
         "issues": result.get("issues", []),
@@ -279,4 +280,4 @@ else:
             st.sidebar.error(f"Scan analyzed, but history could not be saved: {exc}")
         st.session_state.saved_scan_hashes.add(result["sha256"])
 
-st.markdown('<div class="footer">A warning indicator is not proof of manipulation. No malware scan is performed. Verify important claims using trusted sources.</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">ImagoSec checks image-editing clues and selected suspicious file markers. Pixel scores are not percentages of the image changed, and marker matches are indicators—not confirmed malware verdicts.</div>', unsafe_allow_html=True)
