@@ -149,9 +149,7 @@ def alteration_result(metadata, ela):
     software = metadata.get("software") if isinstance(metadata, dict) else None
     flags = metadata.get("flags", []) if isinstance(metadata, dict) else []
     pixel_score = int(ela.get("risk_score", 0)) if isinstance(ela, dict) else 0
-    has_pixel_clue = pixel_score > 25
-    has_metadata_clue = bool(software or flags)
-    if has_pixel_clue or has_metadata_clue:
+    if pixel_score > 25 or software or flags:
         return (
             "⚠️ Image changes/alteration clues detected — review this image carefully. "
             "These clues are not proof that it was manipulated.",
@@ -250,21 +248,22 @@ else:
             st.success(f"✅ {label}")
             st.progress(max(0, min(score, 100)) / 100)
             st.markdown("<div class='safe-note'><strong>No selected warning signs found.</strong> This does not prove the image is perfect or malware-free; it only means no selected issues were detected.</div>", unsafe_allow_html=True)
+
+        # Keep the existing result and alteration alert; show the supporting
+        # metadata and pixel clues together in this result panel as requested.
         alteration_class = "detected" if alteration_state == "detected" else "clear"
         st.markdown(f"<div class='alteration-alert {alteration_class}' role='status'>{alteration_text}</div>", unsafe_allow_html=True)
-
-    st.markdown("### Was the image changed or edited?")
-    if software_found or metadata_flags:
-        trace_text = []
-        if software_found:
-            trace_text.append(f"Editing software recorded: {software_found}")
-        if metadata_flags:
-            trace_text.append("Metadata fields present: " + ", ".join(str(x) for x in metadata_flags))
-        st.write("**Clues found:** " + "; ".join(trace_text))
-    else:
-        st.write("**Clues found:** No editing-software metadata or suspicious EXIF fields were found in the file.")
-
-    st.write(f"**Pixel comparison clue:** {ela.get('message', 'No pixel clue available')} The ELA-style score is a warning signal, not a percentage of the image changed.")
+        st.markdown("**Was your image changed or altered?**")
+        if software_found or metadata_flags:
+            trace_text = []
+            if software_found:
+                trace_text.append(f"Editing-related details found: software recorded as {software_found}")
+            if metadata_flags:
+                trace_text.append("Metadata fields: " + ", ".join(str(x) for x in metadata_flags))
+            st.write("; ".join(trace_text))
+        else:
+            st.write("**Editing-related details:** None found in the metadata fields checked.")
+        st.write(f"**Pixel comparison:** {ela.get('message', 'No pixel clue available')} The ELA value is an internal comparison score—not a percentage of the image changed.")
 
     if suspicious_markers:
         st.markdown("### File security check")
@@ -299,6 +298,7 @@ else:
         "sha256": result["sha256"],
         "status": label,
         "image_change_clue_result": alteration_text,
+        "editing_metadata_summary": "; ".join(metadata_flags) if metadata_flags else (software_found or "No editing metadata found in checked fields"),
         "risk_score": score,
         "suspicious_markers": suspicious_markers,
         "metadata": metadata,
