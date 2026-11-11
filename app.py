@@ -36,6 +36,9 @@ st.markdown(
       .warning-note { border-left:4px solid #f3b84b; background:rgba(243,184,75,.09); border-radius:8px; padding:.85rem 1rem; color:#f3e5c4; margin:.8rem 0 1rem; }
       .danger-note { border-left:4px solid #f87171; background:rgba(248,113,113,.10); border-radius:8px; padding:.85rem 1rem; color:#fecaca; margin:.8rem 0 1rem; }
       .safe-note { border-left:4px solid #4ade80; background:rgba(74,222,128,.08); border-radius:8px; padding:.85rem 1rem; color:#bbf7d0; margin:.8rem 0 1rem; }
+      .alteration-alert { border:2px solid #f3b84b; border-radius:12px; padding:1rem 1.15rem; margin:.8rem 0 1rem; background:rgba(243,184,75,.13); color:#fff1c2; font-size:1.08rem; font-weight:700; }
+      .alteration-alert.detected { border-color:#f87171; background:rgba(248,113,113,.14); color:#fecaca; }
+      .alteration-alert.clear { border-color:#4ade80; background:rgba(74,222,128,.10); color:#bbf7d0; }
       div[data-testid="stMetric"] { background:rgba(17,29,45,.9); border:1px solid var(--line); border-radius:14px; padding:.85rem; }
       div[data-testid="stMetricLabel"] { color:var(--muted); }
       div[data-testid="stMetricValue"] { color:var(--ink); }
@@ -141,6 +144,25 @@ def status_label(score):
     return "Green: low warning", "safe"
 
 
+def alteration_result(metadata, ela):
+    """Return a cautious plain-language alteration clue summary."""
+    software = metadata.get("software") if isinstance(metadata, dict) else None
+    flags = metadata.get("flags", []) if isinstance(metadata, dict) else []
+    pixel_score = int(ela.get("risk_score", 0)) if isinstance(ela, dict) else 0
+    has_pixel_clue = pixel_score > 25
+    has_metadata_clue = bool(software or flags)
+    if has_pixel_clue or has_metadata_clue:
+        return (
+            "⚠️ Image changes/alteration clues detected — review this image carefully. "
+            "These clues are not proof that it was manipulated.",
+            "detected",
+        )
+    return (
+        "No clear image-change clues detected by these checks. This does not prove the image is unchanged.",
+        "clear",
+    )
+
+
 with st.sidebar:
     st.markdown("## 🛡️ ImagoSec")
     st.caption("Fake image & scam scanner for everyday users")
@@ -206,6 +228,7 @@ else:
     metadata_flags = metadata.get("flags", []) if isinstance(metadata, dict) else []
     software_found = metadata.get("software") if isinstance(metadata, dict) else None
     pixel_score = int(ela.get("risk_score", 0)) if isinstance(ela, dict) else 0
+    alteration_text, alteration_state = alteration_result(metadata, ela)
 
     preview, summary = st.columns([1, 1.4], gap="large")
     with preview:
@@ -214,7 +237,7 @@ else:
             st.image(image.copy(), caption=uploaded.name, width=360)
         st.caption(f"SHA-256 fingerprint: `{result['sha256'][:16]}…`")
     with summary:
-        st.markdown('<div class="section-title">Quick result</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Your result</div>', unsafe_allow_html=True)
         if level == "danger":
             st.error(f"🚨 {label}")
             st.progress(1.0)
@@ -227,6 +250,8 @@ else:
             st.success(f"✅ {label}")
             st.progress(max(0, min(score, 100)) / 100)
             st.markdown("<div class='safe-note'><strong>No selected warning signs found.</strong> This does not prove the image is perfect or malware-free; it only means no selected issues were detected.</div>", unsafe_allow_html=True)
+        alteration_class = "detected" if alteration_state == "detected" else "clear"
+        st.markdown(f"<div class='alteration-alert {alteration_class}' role='status'>{alteration_text}</div>", unsafe_allow_html=True)
 
     st.markdown("### Was the image changed or edited?")
     if software_found or metadata_flags:
@@ -250,11 +275,10 @@ else:
         st.success("✅ No selected suspicious executable/archive marker was detected in the file.")
         st.caption("This is a limited check and does not rule out every hidden payload or disguise.")
 
-    # Show the ELA heatmap if available
     ela_heatmap = ela.get("heatmap")
     if ela_heatmap is not None:
         st.markdown("### Pixel-difference map")
-        st.image(ela_heatmap, caption="ELA-style map: brighter areas are more unusual in the image.")
+        st.image(ela_heatmap, caption="ELA-style map: brighter areas show larger recompression differences, not confirmed edits.")
 
     if level == "danger":
         st.warning("🛑 Pause and verify before paying, sharing, or trusting the image. Use an official app or trusted contact method instead of relying on the image alone.")
@@ -274,10 +298,11 @@ else:
         "filename": uploaded.name,
         "sha256": result["sha256"],
         "status": label,
+        "image_change_clue_result": alteration_text,
         "risk_score": score,
         "suspicious_markers": suspicious_markers,
         "metadata": metadata,
-        "ela": ela,
+        "ela": {key: value for key, value in ela.items() if key != "heatmap"},
         "issues": result.get("issues", []),
     }
     st.download_button("⬇️ Download scan report", data=json.dumps(report, indent=2, default=str), file_name=f"imagosec-report-{result['sha256'][:12]}.json", mime="application/json")
