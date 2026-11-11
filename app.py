@@ -22,20 +22,26 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-      :root { --ink:#e8eef8; --muted:#9aabc1; --panel:#111d2d; --line:#24364d;
-              --accent:#45c4db; --green:#41d6a3; }
+      :root { --ink:#e8eef8; --muted:#9aabc1; --line:#24364d; --accent:#45c4db; }
       .stApp { background: radial-gradient(ellipse at 50% -20%, #19314d 0, #0b1421 55%); }
       [data-testid="stHeader"] { background: transparent; }
       .block-container { max-width: 1280px; padding-top: 2rem; padding-bottom: 3rem; }
       .hero { padding: 1.6rem 1.8rem; border: 1px solid var(--line); border-radius: 20px;
               background: linear-gradient(120deg, rgba(20,39,60,.96), rgba(15,27,42,.92));
-              margin-bottom: 1.4rem; }
+              margin-bottom: 1.2rem; }
       .eyebrow { color: var(--accent); font-size:.78rem; font-weight:700; letter-spacing:.14em;
                  text-transform:uppercase; margin-bottom:.45rem; }
       .hero h1 { color:var(--ink); font-size:2.25rem; margin:0; line-height:1.15; }
-      .hero p { color:var(--muted); margin:.7rem 0 0; max-width:760px; font-size:1rem; }
+      .hero p { color:var(--muted); margin:.7rem 0 0; max-width:850px; font-size:1rem; }
       .section-title { color:var(--ink); font-size:1.2rem; font-weight:700; margin:.6rem 0 .25rem; }
       .subtle { color:var(--muted); font-size:.9rem; }
+      .check-card { height:100%; min-height:128px; padding:1rem; border:1px solid var(--line);
+          border-radius:14px; background:rgba(17,29,45,.88); }
+      .check-card h3 { color:var(--ink); font-size:1rem; margin:0 0 .45rem; }
+      .check-card p { color:var(--muted); font-size:.88rem; margin:0; line-height:1.5; }
+      .tech { color:var(--accent); font-weight:600; }
+      .note { border-left:3px solid var(--accent); background:rgba(69,196,219,.08);
+              border-radius:8px; padding:.75rem 1rem; color:#c8d8e9; margin:.8rem 0 1.2rem; }
       div[data-testid="stMetric"] { background:rgba(17,29,45,.9); border:1px solid var(--line);
           border-radius:15px; padding:1rem 1.1rem; }
       div[data-testid="stMetricLabel"] { color:var(--muted); }
@@ -45,9 +51,8 @@ st.markdown(
       div[data-testid="stFileUploader"] section { background:rgba(17,29,45,.8);
           border:1px dashed #3b5877; border-radius:15px; }
       [data-testid="stSidebar"] { background:#0b1421; border-right:1px solid var(--line); }
-      .note { border-left:3px solid var(--accent); background:rgba(69,196,219,.08);
-              border-radius:8px; padding:.75rem 1rem; color:#c8d8e9; }
       .footer { color:#71839b; font-size:.8rem; text-align:center; padding-top:1.5rem; }
+      @media (max-width: 700px) { .hero h1 {font-size:1.7rem;} .check-card {min-height:0; margin-bottom:.5rem;} }
     </style>
     """,
     unsafe_allow_html=True,
@@ -106,8 +111,7 @@ def upload_to_blob(file_bytes, filename, file_hash):
             return None
 
         container_name = os.getenv("AZURE_STORAGE_CONTAINER", "imagosec-ingestion")
-        suffix = Path(filename).suffix.lower()
-        blob_name = f"{uuid.uuid4().hex}{suffix}"
+        blob_name = f"{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
         blob_client = client.get_blob_client(container=container_name, blob=blob_name)
         blob_client.upload_blob(
             file_bytes, overwrite=False, metadata={"sha256": file_hash}
@@ -197,24 +201,37 @@ with st.sidebar:
     )
     st.write(f"Blob storage · {'Configured' if blob_configured else 'Not configured'}")
     st.caption(
-        "SQLite is the zero-cloud-cost demo mode. Set Azure configuration to verify "
-        "cloud integration; paused resources are not contacted."
+        "SQLite is the no-cloud-cost demo mode. Azure services are used only when configured."
     )
     st.divider()
-    st.markdown("### What this scan checks")
-    st.markdown("- File readability and validation\n- Metadata and editing traces\n- ELA-style pixel differences")
+    st.markdown("### Scan checks")
+    st.markdown("File validity · Metadata · Pixel differences")
 
 st.markdown(
     """
     <div class="hero">
       <div class="eyebrow">Image integrity • metadata • pixel analysis</div>
-      <h1>🛡️ ImagoSec</h1>
-      <p>Inspect an image for metadata and pixel-level indicators in one clear report. 
-      This prototype's ELA score is heuristic and cannot prove that an image is authentic or altered.</p>
+      <h1>🛡️ ImagoSec | Secure Image Forensics Gateway</h1>
+      <p>Upload an image for a simple check. The four checks below explain what ImagoSec looks at and what its results can—and cannot—tell you.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+st.markdown('<div class="section-title">What does ImagoSec check?</div>', unsafe_allow_html=True)
+check_columns = st.columns(4, gap="small")
+check_cards = [
+    ("1 · Is it a real image?", "We check that the file can be opened as an image and has an allowed type. <span class='tech'>(file validation)</span>"),
+    ("2 · What details are attached?", "We look for saved information such as image format, size, or editing-software name. <span class='tech'>(metadata / EXIF)</span>"),
+    ("3 · Do pixels look different?", "We compare the image with recompressed copies to find unusual pixel differences. <span class='tech'>(ELA-style analysis)</span>"),
+    ("4 · How should I read the score?", "Treat the score as a clue for review—not a verdict. A score cannot prove that a picture was changed. <span class='tech'>(heuristic)</span>"),
+]
+for column, (heading, description) in zip(check_columns, check_cards):
+    with column:
+        st.markdown(
+            f"<div class='check-card'><h3>{heading}</h3><p>{description}</p></div>",
+            unsafe_allow_html=True,
+        )
 
 st.markdown('<div class="section-title">Start an image scan</div>', unsafe_allow_html=True)
 st.markdown(
@@ -267,8 +284,7 @@ else:
         else:
             st.success("No major indicators were detected by this prototype.")
         st.markdown(
-            '<div class="note">A low score does not guarantee that an image is genuine. '
-            'ELA and metadata can produce false positives and false negatives.</div>',
+            '<div class="note">ELA is a heuristic (an estimate based on image patterns), not proof that an image was manipulated.</div>',
             unsafe_allow_html=True,
         )
 
@@ -336,6 +352,6 @@ else:
         st.session_state.saved_scan_hashes.add(result["sha256"])
 
 st.markdown(
-    '<div class="footer">ImagoSec prototype · Local SQLite is intended for demos; Azure services are optional and require configuration.</div>',
+    '<div class="footer">ImagoSec prototype · SQLite is for local demos; Azure services are optional and used only when configured.</div>',
     unsafe_allow_html=True,
 )
