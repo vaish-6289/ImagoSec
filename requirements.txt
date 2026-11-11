@@ -3,3 +3,4 @@ Pillow
 numpy
 python-dotenv
 pyodbc
+azure-storage-blob
