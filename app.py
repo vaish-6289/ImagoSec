@@ -1,7 +1,7 @@
 import io
 
 import streamlit as st
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from forensics import analyze_image
 
@@ -24,7 +24,22 @@ uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "bmp"
 if uploaded is not None:
     file_bytes = uploaded.getvalue()
 
-    st.image(file_bytes, caption=f"Uploaded: {uploaded.name}", use_container_width=True)
+    # Verify the contents before displaying them; an extension alone is not proof
+    # that the uploaded file is a readable image.
+    try:
+        with Image.open(io.BytesIO(file_bytes)) as image:
+            image.verify()
+    except (UnidentifiedImageError, OSError, ValueError):
+        st.error("Invalid or corrupted image. Please upload a readable JPG, PNG, or BMP file.")
+        st.stop()
+
+    # Keep large uploads from taking over the page. Streamlit treats this as a
+    # maximum display width and preserves the image's aspect ratio.
+    st.image(
+        file_bytes,
+        caption=f"Uploaded: {uploaded.name}",
+        width=400,
+    )
 
     with st.spinner("Running forensic scan..."):
         result = analyze_image(uploaded.name, file_bytes)
