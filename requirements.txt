@@ -1,5 +1,8 @@
-streamlit
-Pillow
-numpy
-python-dotenv
-pyodbc
+streamlit>=1.30.0
+Pillow>=10.0.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+azure-identity>=1.15.0
+azure-keyvault-secrets>=4.8.0
+azure-storage-blob>=12.19.0
+pyodbc>=5.0.0
