@@ -9,7 +9,10 @@ import streamlit as st
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, UnidentifiedImageError
 
-from forensics import analyze_image, detect_suspicious_magic
+from forensics import analyze_image, detect_suspicious_magic, scan_with_clamav
+
+CLAMAV_TEST_SAMPLE_NAME = "Harmless ClamAV test (EICAR - not real malware)"
+CLAMAV_TEST_SAMPLE_BYTES = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 load_dotenv()
 st.set_page_config(page_title="ImagoSec | Image & Scam Scanner", page_icon="🛡️", layout="wide")
@@ -127,7 +130,7 @@ def save_scan(filename, result, blob_name=None):
 
 def status_label(score):
     if score >= 70:
-        return "Danger: suspicious signs found", "danger"
+        return "Review: elevated warning signs", "warning"
     if score >= 40:
         return "Review: possible warning signs", "warning"
     return "No major warning signs detected", "safe"
@@ -163,7 +166,7 @@ st.markdown('<div class="section-title">Check an image</div>', unsafe_allow_html
 st.caption("Choose what to check")
 mode = st.radio(
     "Choose what to check",
-    ["Upload your own image", "Try a sample image"],
+    ["Upload your own image", "Try a sample"],
     horizontal=True,
     index=1,
     label_visibility="collapsed",
@@ -172,6 +175,7 @@ mode = st.radio(
 samples = make_demo_samples()
 file_bytes = None
 filename = None
+is_clamav_test_sample = False
 if mode == "Upload your own image":
     uploaded = st.file_uploader(
         "Upload your own image", type=["jpg", "jpeg", "png", "bmp"],
@@ -181,7 +185,7 @@ if mode == "Upload your own image":
         file_bytes = uploaded.getvalue()
         filename = uploaded.name
 else:
-    st.caption("These fictional practice pictures contain no real payment or personal information. Choose one to scan, or download it to try later.")
+    st.caption("The practice pictures are fictional. You can also run the harmless EICAR antivirus test sample; it is a test string, not malware or a real image.")
     download_cols = st.columns(3)
     for col, (sample_name, sample_data) in zip(download_cols, samples.items()):
         with col:
@@ -192,13 +196,48 @@ else:
                 mime="image/png",
                 use_container_width=True,
             )
-    selected_sample = st.selectbox("Choose a sample picture to scan", list(samples.keys()), index=1)
-    file_bytes = samples[selected_sample]
-    filename = selected_sample.lower().replace(" ", "-") + ".png"
+    selected_sample = st.selectbox(
+        "Choose a sample to scan",
+        [*samples, CLAMAV_TEST_SAMPLE_NAME],
+        index=1,
+    )
+    is_clamav_test_sample = selected_sample == CLAMAV_TEST_SAMPLE_NAME
+    if is_clamav_test_sample:
+        file_bytes = CLAMAV_TEST_SAMPLE_BYTES
+        filename = "imagosec-eicar-test.txt"
+    else:
+        file_bytes = samples[selected_sample]
+        filename = selected_sample.lower().replace(" ", "-") + ".png"
 
 if file_bytes is None:
     st.info("Upload a picture or choose a sample picture to begin.")
 else:
+    markers = detect_suspicious_magic(file_bytes)
+    with st.spinner("Scanning the file with ClamAV..."):
+        malware_scan = scan_with_clamav(file_bytes)
+
+    st.markdown("### ClamAV malware scan")
+    if is_clamav_test_sample:
+        if malware_scan["status"] == "threat":
+            st.error("🚨 Threat detected: ClamAV recognized the harmless EICAR test signature. This is expected for the scanner test, not actual malware.")
+            st.code(malware_scan["details"], language="text")
+        else:
+            st.warning(f"Test could not confirm detection (ClamAV status: {malware_scan['status']}).")
+            st.caption(malware_scan["details"])
+        st.info("EICAR is a standard antivirus test pattern, not actual malware. This test checks the scanner only; it is not an image.")
+        st.stop()
+    if malware_scan["status"] == "threat":
+        st.error("🚨 **Threat detected: ClamAV found a known malware signature. Do not open, forward, or use this file.**")
+        st.code(malware_scan["details"], language="text")
+        st.caption("A signature match is a detection indicator; do not treat this as a complete malware analysis.")
+        st.stop()
+    if malware_scan["status"] == "clean":
+        st.success("✅ No known threat detected by ClamAV.")
+        st.caption("A clean scan does not prove the file is safe. ClamAV and its signature database must be kept up to date.")
+    else:
+        st.warning(f"⚠️ ClamAV scan not completed ({malware_scan['status']}). This file has not received a malware scan.")
+        st.caption(malware_scan["details"])
+
     try:
         with Image.open(io.BytesIO(file_bytes)) as check_image:
             check_image.verify()
@@ -207,17 +246,15 @@ else:
         readable = False
 
     if not readable:
-        st.error("This file could not be opened as an image. Don’t open it in another program if you do not trust its source.")
-        markers = detect_suspicious_magic(file_bytes)
+        st.warning("This file could not be opened as an image. It may be damaged or mislabeled; this alone does not confirm malware.")
         if markers:
-            st.error("Suspicious file marker(s) detected: " + "; ".join(markers) + ". This is an indicator, not a malware verdict.")
+            st.warning("🟠 Suspicious file marker found, but malware is not confirmed: " + "; ".join(markers))
         st.stop()
 
     with st.spinner("Checking image details, pixel patterns, and suspicious file markers…"):
         result = analyze_image(filename, file_bytes)
     metadata = result.get("metadata", {})
     ela = result.get("ela", {})
-    markers = detect_suspicious_magic(file_bytes)
     score = int(result.get("risk_score", 0))
     label, level = status_label(score)
     software = metadata.get("software") if isinstance(metadata, dict) else None
@@ -232,14 +269,16 @@ else:
     with result_col:
         st.markdown("## Your result")
         if markers:
-            st.error("🔴 **Danger: suspicious file signs found.** Don’t open or forward this file. A marker is a warning, not proof of a virus.")
+            st.warning("🟠 **Suspicious file marker found; malware is not confirmed.** Don’t open or forward the file until its source is verified.")
+        elif malware_scan["status"] != "clean":
+            st.warning("🟠 **ClamAV could not complete its malware scan.** Do not treat this file as malware-scanned.")
         elif level == "warning" or change_clues:
             st.warning("🟠 **Review: possible warning signs found.** Check the details before trusting this image.")
         else:
             st.success("🟢 **No major warning signs detected by these checks.** This does not prove the image is unchanged or safe.")
 
         if change_clues:
-            st.error("⚠️ **Image changes/alteration clues detected.** These clues can have ordinary causes and are not proof of manipulation.")
+            st.warning("🟠 **Image changes/alteration clues found.** These clues can have ordinary causes and are not proof of manipulation.")
         else:
             st.success("✅ **No clear image-change clues detected.** This does not prove the image is unchanged.")
         st.markdown(f"**Pixel comparison:** {('High' if pixel_score > 60 else 'Some' if pixel_score > 25 else 'Low')} pixel differences")
@@ -266,8 +305,20 @@ else:
         "filename": filename,
         "sha256": result["sha256"],
         "risk_score": score,
-        "status": label,
+        "status": (
+            "Review: malware scan incomplete"
+            if malware_scan["status"] != "clean"
+            else "Review: possible warning signs"
+            if markers or change_clues or level == "warning"
+            else label
+        ),
         "suspicious_markers": markers,
+        "malware_verdict": {
+            "clean": "no_known_threat_detected_by_clamav",
+            "unavailable": "clamav_unavailable",
+            "error": "clamav_scan_error",
+        }.get(malware_scan["status"], "clamav_scan_not_completed"),
+        "clamav_scan": malware_scan,
         "metadata": metadata,
         "ela": {key: value for key, value in ela.items() if key != "heatmap"},
         "issues": result.get("issues", []),

@@ -1,5 +1,7 @@
 import hashlib
 import io
+import shutil
+import subprocess
 
 import numpy as np
 from PIL import Image, ExifTags
@@ -13,6 +15,8 @@ SUSPICIOUS_FILE_SIGNATURES = (
     (b"7z\xbc\xaf\x27\x1c", "7-Zip/archive marker"),
 )
 
+CLAMAV_TIMEOUT_SECONDS = 60
+
 IMAGE_EXTENSIONS = {
     ".jpg": "JPEG",
     ".jpeg": "JPEG",
@@ -23,6 +27,44 @@ IMAGE_EXTENSIONS = {
 
 def compute_sha256(file_bytes):
     return hashlib.sha256(file_bytes).hexdigest()
+
+
+def scan_with_clamav(file_bytes):
+    """Scan bytes with the local ClamAV CLI without writing the upload to disk."""
+    executable = shutil.which("clamscan")
+    if executable is None:
+        return {
+            "status": "unavailable",
+            "details": "ClamAV's clamscan executable is not installed or is not on PATH.",
+        }
+
+    try:
+        completed = subprocess.run(
+            [executable, "--no-summary", "--stdout", "-"],
+            input=file_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=CLAMAV_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "error",
+            "details": f"ClamAV scan timed out after {CLAMAV_TIMEOUT_SECONDS} seconds.",
+        }
+    except OSError as exc:
+        return {"status": "error", "details": f"Could not run ClamAV: {exc}"}
+
+    output = b"\n".join(part for part in (completed.stdout, completed.stderr) if part)
+    details = output.decode("utf-8", errors="replace").strip()
+    if completed.returncode == 0:
+        return {"status": "clean", "details": details or "ClamAV found no known threats."}
+    if completed.returncode == 1:
+        return {"status": "threat", "details": details or "ClamAV reported an infected file."}
+    return {
+        "status": "error",
+        "details": details or f"ClamAV exited with code {completed.returncode}.",
+    }
 
 
 def detect_suspicious_magic(file_bytes):

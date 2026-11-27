@@ -5,7 +5,11 @@ ImagoSec is a Streamlit image-forensics prototype. It checks uploaded image file
 ## Current implementation
 
 - Streamlit upload and result UI
+- Plain-language results with green, orange, and red safety alerts
+- Fictional downloadable practice images that can be scanned in the app
+- Easy-read printable HTML scan reports, alongside the technical JSON report
 - Python/Pillow/NumPy forensic analysis (`forensics.py`)
+- Optional local ClamAV scan for known malware signatures
 - Local SQLite scan-history mode by default
 - Optional Azure SQL scan-history mode
 - Optional private Azure Blob upload
@@ -22,6 +26,20 @@ python -m streamlit run app.py
 ```
 
 The default database is SQLite and creates `local_evaluation_ledger.db` in the project directory. To change the path, set `SQLITE_PATH`. To keep the database file out of Git, it is included in `.gitignore`.
+
+## Enable ClamAV malware scanning
+
+ClamAV is optional. When `clamscan` is installed and its signature database is current, ImagoSec scans each selected image's bytes locally via standard input, without writing the upload to disk. On Ubuntu/Debian, install and update ClamAV in the same environment that runs Streamlit:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y clamav
+sudo freshclam
+```
+
+Restart Streamlit after installation. The app reports a detected signature, no known signature found, or a scan error/unavailable state; it never treats a missing scanner or failed scan as clean. A clean signature scan is not proof that a file is safe. ClamAV is not included in the Python requirements because it is an operating-system program, and the hosting environment must install it separately.
+
+The sample selector also includes a harmless EICAR antivirus test pattern to verify that ClamAV can detect a known test signature. It is not malware and is not an image; the test sample is not offered as a download.
 
 ## Configure Azure for an integration demo
 
